@@ -82,6 +82,8 @@ class MakeMoveCommand(Command):
 
         self.game.toggle_player()
         self.game.get_next_cells()
+        self.game.calculate_score()
+
         HISTORY.append(self)
 
     def cancel(self):
@@ -91,7 +93,8 @@ class MakeMoveCommand(Command):
             self.game.board.coords_state(coord_x, coord_y, state)
 
         self.game.toggle_player()
-
+        self.game.get_next_cells()
+        self.game.calculate_score()
 
 
 class BoardCell(Image):
@@ -138,11 +141,11 @@ class Board(GridLayout):
         cell.state = state
 
         for i in CELL_STATES:
+            if cell in self.cells[i]:
+                self.cells[i].remove(cell)
+
             if i == state:
                 self.cells[state].append(cell)
-            else:
-                if cell in self.cells[i]:
-                    self.cells[i].remove(cell)
 
     def __init__(self, **kwargs):
         super(Board, self).__init__(**kwargs)
@@ -209,15 +212,18 @@ class ReversiGame(object):
         self.scores = Scores()
         self.scores.size_hint_y = 0.2
 
-        self.label_player1 = Label(text='Player 1', size_hint_x=.4)
-        self.label_player2 = Label(text='Player 2', size_hint_x=.4)
+        self.labels = {}
+        self.labels[PLAYER_WHITE] = Label(text='', size_hint_x=.4, markup=True, bold=True)
+        self.labels[PLAYER_BLACK] = Label(text='', size_hint_x=.4, markup=True)
+
+        self.calculate_score()
 
         self.btn_undo = Button(text='Undo', size_hint_x=.2)
         self.btn_undo.bind(on_press=self.undo_handler)
 
-        self.scores.add_widget(self.label_player1)
+        self.scores.add_widget(self.labels[PLAYER_WHITE])
         self.scores.add_widget(self.btn_undo)
-        self.scores.add_widget(self.label_player2)
+        self.scores.add_widget(self.labels[PLAYER_BLACK])
 
         root.add_widget(self.scores)
 
@@ -255,25 +261,31 @@ class ReversiGame(object):
         ]
 
     def reset_next_cells(self):
+        """
+        reset cells that show next steps
+        """
         cells = [(i.coord_x, i.coord_y)for i in self.board.cells[CELL_STATE_STEP]]
+
         for x, y in cells:
             self.board.coords_state(x, y, CELL_STATE_EMPTY)
+            print('reset_next_cells: cell=%s' % self.board.coords(x, y))
 
     def get_win_cells(self, cell):
-        self.reset_next_cells()
-        cells = []
+        win_cells = []
 
         for path in self.get_paths(cell):
             next_cell = self.check_path(path)
 
-            if next_cell:
+            if next_cell and next_cell.state == cell.state:
                 for x, y in path:
-                    cells.append(self.board.coords(x, y))
+                    win_cells.append(self.board.coords(x, y))
 
                     if next_cell.coord_x == x and next_cell.coord_x:
                         break
 
-        return cells
+        print('get_win_cells: cell=%s win_cells=%s' % (cell, win_cells))
+
+        return win_cells
 
     def check_path(self, path):
         """
@@ -281,24 +293,31 @@ class ReversiGame(object):
         """
         states_count = 0
         next_player_state = PLAYERS_CELLS[self.next_player]
-        current_player_state = PLAYERS_CELLS[self.current_player]
 
+        cell = None
         for x, y in path:
             cell = self.board.coords(x, y)
 
             if cell.state != next_player_state and states_count == 0:
+                cell = None
                 break
 
             if cell.state != next_player_state and states_count > 0:
-                return cell
+                break
 
             if cell.state == next_player_state:
                 states_count += 1
+
+        print('check_path: path=%s cell=%s' % (path, cell))
+
+        return cell
 
     def get_next_cells(self):
         """
         mark all next step cells
         """
+        self.reset_next_cells()
+
         current_player_state = PLAYERS_CELLS[self.current_player]
         next_player_state = PLAYERS_CELLS[self.next_player]
 
@@ -306,14 +325,22 @@ class ReversiGame(object):
             for path in self.get_paths(cell):
                 next_cell = self.check_path(path)
 
-                if next_cell:
+                if next_cell and next_cell.state == CELL_STATE_EMPTY:
+                    print('get_next_cells: pre - %s' % next_cell)
                     self.board.coords_state(next_cell.coord_x, next_cell.coord_y, CELL_STATE_STEP)
+                    print('get_next_cells: post - %s' % next_cell)
 
     def calculate_score(self):
-        pass
+        self.labels[PLAYER_WHITE].text = 'White: %s' % len(self.board.cells[CELL_STATE_WHITE])
+        self.labels[PLAYER_BLACK].text = 'Black: %s' % len(self.board.cells[CELL_STATE_BLACK])
 
     def toggle_player(self):
         self.current_player, self.next_player = self.next_player, self.current_player
+
+        self.labels[self.current_player].bold = True
+        self.labels[self.next_player].bold = False
+
+        print('current_player=%s' % self.current_player)
 
 
 class ReversiApp(App):
